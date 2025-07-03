@@ -34,7 +34,7 @@ def search_items(
     query: str,
     qmode: Literal["titleCreatorYear", "everything"] = "titleCreatorYear",
     item_type: str = "-attachment",  # Exclude attachments by default
-    limit: Optional[int] = 10,
+    limit: Optional[Union[int, str]] = 10,
     tag: Optional[List[str]] = None,
     *,
     ctx: Context
@@ -65,6 +65,9 @@ def search_items(
 
         ctx.info(f"Searching Zotero for '{query}'{tag_condition_str}")
         zot = get_zotero_client()
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Search using the query parameters
         zot.add_parameters(q=query, qmode=qmode, itemType=item_type, limit=limit, tag=tag)
@@ -122,7 +125,7 @@ def search_items(
 def search_by_tag(
     tag: List[str],
     item_type: str = "-attachment",
-    limit: Optional[int] = 10,
+    limit: Optional[Union[int, str]] = 10,
     *,
     ctx: Context
 ) -> str:
@@ -153,6 +156,9 @@ def search_by_tag(
 
         ctx.info(f"Searching Zotero for tag '{tag}'")
         zot = get_zotero_client()
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Search using the query parameters
         zot.add_parameters(q="", tag=tag, itemType=item_type, limit=limit)
@@ -322,7 +328,7 @@ def get_item_fulltext(
     description="List all collections in your Zotero library."
 )
 def get_collections(
-    limit: Optional[int] = None,
+    limit: Optional[Union[int, str]] = None,
     *,
     ctx: Context
 ) -> str:
@@ -339,6 +345,9 @@ def get_collections(
     try:
         ctx.info("Fetching collections")
         zot = get_zotero_client()
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         collections = zot.collections(limit=limit)
         
@@ -413,7 +422,7 @@ def get_collections(
 )
 def get_collection_items(
     collection_key: str,
-    limit: Optional[int] = 50,
+    limit: Optional[Union[int, str]] = 50,
     *,
     ctx: Context
 ) -> str:
@@ -438,6 +447,9 @@ def get_collection_items(
             collection_name = collection["data"].get("name", "Unnamed Collection")
         except Exception:
             collection_name = f"Collection {collection_key}"
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Then get the items
         items = zot.collection_items(collection_key, limit=limit)
@@ -593,7 +605,7 @@ def get_item_children(
     description="Get all tags used in your Zotero library."
 )
 def get_tags(
-    limit: Optional[int] = None,
+    limit: Optional[Union[int, str]] = None,
     *,
     ctx: Context
 ) -> str:
@@ -610,6 +622,9 @@ def get_tags(
     try:
         ctx.info("Fetching tags")
         zot = get_zotero_client()
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         tags = zot.tags(limit=limit)
         if not tags:
@@ -644,7 +659,7 @@ def get_tags(
     description="Get recently added items to your Zotero library."
 )
 def get_recent(
-    limit: int = 10,
+    limit: Union[int, str] = 10,
     *,
     ctx: Context
 ) -> str:
@@ -661,6 +676,9 @@ def get_recent(
     try:
         ctx.info(f"Fetching {limit} recent items")
         zot = get_zotero_client()
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Ensure limit is a reasonable number
         if limit <= 0:
@@ -713,7 +731,7 @@ def batch_update_tags(
     query: str,
     add_tags: Optional[List[str]] = None,
     remove_tags: Optional[List[str]] = None,
-    limit: int = 50,
+    limit: Union[int, str] = 50,
     *,
     ctx: Context
 ) -> str:
@@ -739,6 +757,9 @@ def batch_update_tags(
         
         ctx.info(f"Batch updating tags for items matching '{query}'")
         zot = get_zotero_client()
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Search for items matching the query
         zot.add_parameters(q=query, limit=limit)
@@ -828,7 +849,7 @@ def advanced_search(
     join_mode: Literal["all", "any"] = "all",
     sort_by: Optional[str] = None,
     sort_direction: Literal["asc", "desc"] = "asc",
-    limit: int = 50,
+    limit: Union[int, str] = 50,
     *,
     ctx: Context
 ) -> str:
@@ -863,6 +884,9 @@ def advanced_search(
         if sort_by:
             params["sort"] = sort_by
             params["direction"] = sort_direction
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Add limit parameter
         params["limit"] = limit
@@ -988,7 +1012,7 @@ def advanced_search(
 def get_annotations(
     item_key: Optional[str] = None,
     use_pdf_extraction: bool = False,
-    limit: Optional[int] = None,
+    limit: Optional[Union[int, str]] = None,
     *,
     ctx: Context
 ) -> str:
@@ -1200,6 +1224,8 @@ def get_annotations(
         
         else:
             # Retrieve all annotations in the library
+            if isinstance(limit, str):
+                limit = int(limit)
             zot.add_parameters(itemType="annotation", limit=limit or 50)
             annotations = zot.everything(zot.items())
         
@@ -1290,7 +1316,7 @@ def get_annotations(
 )
 def get_notes(
     item_key: Optional[str] = None,
-    limit: Optional[int] = 20,
+    limit: Optional[Union[int, str]] = 20,
     *,
     ctx: Context
 ) -> str:
@@ -1313,6 +1339,9 @@ def get_notes(
         params = {"itemType": "note"}
         if item_key:
             params["parentItem"] = item_key
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # Get notes
         notes = zot.items(**params) if not limit else zot.items(limit=limit, **params)
@@ -1374,7 +1403,7 @@ def get_notes(
 )
 def search_notes(
     query: str,
-    limit: Optional[int] = 20,
+    limit: Optional[Union[int, str]] = 20,
     *,
     ctx: Context
 ) -> str:
@@ -1398,6 +1427,9 @@ def search_notes(
         
         # Search for notes and annotations
         results = []
+        
+        if isinstance(limit, str):
+            limit = int(limit)
         
         # First search notes
         zot.add_parameters(q=query, itemType="note", limit=limit or 20)
