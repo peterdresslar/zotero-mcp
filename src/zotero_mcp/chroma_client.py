@@ -33,6 +33,10 @@ class OpenAIEmbeddingFunction(EmbeddingFunction):
         except ImportError:
             raise ImportError("openai package is required for OpenAI embeddings")
     
+    def name(self) -> str:
+        """Return the name of this embedding function."""
+        return "openai"
+    
     def __call__(self, input: Documents) -> Embeddings:
         """Generate embeddings using OpenAI API."""
         response = self.client.embeddings.create(
@@ -58,6 +62,10 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
             self.types = types
         except ImportError:
             raise ImportError("google-genai package is required for Gemini embeddings")
+    
+    def name(self) -> str:
+        """Return the name of this embedding function."""
+        return "gemini"
     
     def __call__(self, input: Documents) -> Embeddings:
         """Generate embeddings using Gemini API."""

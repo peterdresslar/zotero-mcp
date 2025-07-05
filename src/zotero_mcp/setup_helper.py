@@ -128,8 +128,8 @@ def setup_semantic_search() -> dict:
     # Choose embedding model
     print("\nAvailable embedding models:")
     print("1. Default (all-MiniLM-L6-v2) - Free, runs locally")
-    print("2. OpenAI - High quality, requires API key")
-    print("3. Gemini - Google's embedding model, requires API key")
+    print("2. OpenAI - Better quality, requires API key")
+    print("3. Gemini - Better quality, requires API key")
     
     while True:
         choice = input("\nChoose embedding model (1-3): ").strip()

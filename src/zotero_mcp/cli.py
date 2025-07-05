@@ -3,9 +3,60 @@ Command-line interface for Zotero MCP server.
 """
 
 import argparse
+import json
+import os
 import sys
+from pathlib import Path
 
 from zotero_mcp.server import mcp
+
+
+def load_claude_desktop_env_vars():
+    """Load Zotero environment variables from Claude Desktop config."""
+    from zotero_mcp.setup_helper import find_claude_config
+    
+    try:
+        config_path = find_claude_config()
+        if not config_path or not config_path.exists():
+            return {}
+        
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Extract Zotero MCP server environment variables
+        mcp_servers = config.get("mcpServers", {})
+        zotero_config = mcp_servers.get("zotero", {})
+        env_vars = zotero_config.get("env", {})
+        
+        return env_vars
+    
+    except Exception:
+        return {}
+
+
+def apply_environment_variables(env_vars):
+    """Apply environment variables to current process."""
+    for key, value in env_vars.items():
+        if key not in os.environ:  # Don't override existing env vars
+            os.environ[key] = str(value)
+
+
+def setup_zotero_environment():
+    """Setup Zotero environment for CLI commands."""
+    # Load environment variables from Claude Desktop config
+    claude_env_vars = load_claude_desktop_env_vars()
+    
+    # Apply fallback defaults for local Zotero if no config found
+    fallback_env_vars = {
+        "ZOTERO_LOCAL": "true",
+        "ZOTERO_LIBRARY_ID": "0",
+    }
+    
+    # Apply Claude Desktop env vars first
+    apply_environment_variables(claude_env_vars)
+    
+    # Apply fallbacks only if not already set
+    apply_environment_variables(fallback_env_vars)
 
 
 def main():
@@ -95,6 +146,9 @@ def main():
         sys.exit(setup_main(args))
     
     elif args.command == "update-db":
+        # Setup Zotero environment variables
+        setup_zotero_environment()
+        
         from zotero_mcp.semantic_search import create_semantic_search
         from pathlib import Path
         
@@ -135,6 +189,9 @@ def main():
             sys.exit(1)
     
     elif args.command == "db-status":
+        # Setup Zotero environment variables
+        setup_zotero_environment()
+        
         from zotero_mcp.semantic_search import create_semantic_search
         from pathlib import Path
         import json
