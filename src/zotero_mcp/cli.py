@@ -65,6 +65,15 @@ def main():
     db_status_parser.add_argument("--config-path",
                                  help="Path to semantic search configuration file")
     
+    # Update command
+    update_parser = subparsers.add_parser("update", help="Update zotero-mcp to the latest version")
+    update_parser.add_argument("--check-only", action="store_true",
+                              help="Only check for updates without installing")
+    update_parser.add_argument("--force", action="store_true",
+                              help="Force update even if already up to date")
+    update_parser.add_argument("--method", choices=["pip", "uv", "conda", "pipx"],
+                              help="Override auto-detected installation method")
+    
     # Version command
     version_parser = subparsers.add_parser("version", help="Print version information")
     
@@ -164,6 +173,53 @@ def main():
             
         except Exception as e:
             print(f"Error getting database status: {e}")
+            sys.exit(1)
+    
+    elif args.command == "update":
+        from zotero_mcp.updater import update_zotero_mcp
+        
+        try:
+            print("Checking for updates...")
+            
+            result = update_zotero_mcp(
+                check_only=args.check_only,
+                force=args.force,
+                method=args.method
+            )
+            
+            print("\n" + "="*50)
+            print("UPDATE RESULTS")
+            print("="*50)
+            
+            if args.check_only:
+                print(f"Current version: {result.get('current_version', 'Unknown')}")
+                print(f"Latest version: {result.get('latest_version', 'Unknown')}")
+                print(f"Update needed: {result.get('needs_update', False)}")
+                print(f"Status: {result.get('message', 'Unknown')}")
+            else:
+                if result.get('success'):
+                    print("✅ Update completed successfully!")
+                    print(f"Version: {result.get('current_version', 'Unknown')} → {result.get('latest_version', 'Unknown')}")
+                    print(f"Method: {result.get('method', 'Unknown')}")
+                    print(f"Message: {result.get('message', '')}")
+                    
+                    print("\n📋 Next steps:")
+                    print("• All configurations have been preserved")
+                    print("• Restart Claude Desktop if it's running")
+                    print("• Your semantic search database is intact")
+                    print("• Run 'zotero-mcp version' to verify the update")
+                else:
+                    print("❌ Update failed!")
+                    print(f"Error: {result.get('message', 'Unknown error')}")
+                    
+                    if backup_dir := result.get('backup_dir'):
+                        print(f"\n🔄 Backup created at: {backup_dir}")
+                        print("You can manually restore configurations if needed")
+                    
+                    sys.exit(1)
+            
+        except Exception as e:
+            print(f"❌ Update error: {e}")
             sys.exit(1)
     
     elif args.command == "serve":
