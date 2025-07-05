@@ -46,6 +46,24 @@ def main():
     setup_parser.add_argument("--library-type", choices=["user", "group"], default="user", 
                              help="Zotero library type (only needed with --no-local)")
     setup_parser.add_argument("--config-path", help="Path to Claude Desktop config file")
+    setup_parser.add_argument("--skip-semantic-search", action="store_true", 
+                             help="Skip semantic search configuration")
+    setup_parser.add_argument("--semantic-config-only", action="store_true",
+                             help="Only configure semantic search, skip Zotero setup")
+    
+    # Update database command
+    update_db_parser = subparsers.add_parser("update-db", help="Update semantic search database")
+    update_db_parser.add_argument("--force-rebuild", action="store_true",
+                                 help="Force complete rebuild of the database")
+    update_db_parser.add_argument("--limit", type=int,
+                                 help="Limit number of items to process (for testing)")
+    update_db_parser.add_argument("--config-path", 
+                                 help="Path to semantic search configuration file")
+    
+    # Database status command
+    db_status_parser = subparsers.add_parser("db-status", help="Show semantic search database status")
+    db_status_parser.add_argument("--config-path",
+                                 help="Path to semantic search configuration file")
     
     # Version command
     version_parser = subparsers.add_parser("version", help="Print version information")
@@ -66,6 +84,87 @@ def main():
     elif args.command == "setup":
         from zotero_mcp.setup_helper import main as setup_main
         sys.exit(setup_main(args))
+    
+    elif args.command == "update-db":
+        from zotero_mcp.semantic_search import create_semantic_search
+        from pathlib import Path
+        
+        # Determine config path
+        config_path = args.config_path
+        if not config_path:
+            config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        else:
+            config_path = Path(config_path)
+        
+        print(f"Using configuration: {config_path}")
+        
+        try:
+            # Create semantic search instance
+            search = create_semantic_search(str(config_path))
+            
+            print("Starting database update...")
+            stats = search.update_database(
+                force_full_rebuild=args.force_rebuild,
+                limit=args.limit
+            )
+            
+            print(f"\nDatabase update completed:")
+            print(f"- Total items: {stats.get('total_items', 0)}")
+            print(f"- Processed: {stats.get('processed_items', 0)}")
+            print(f"- Added: {stats.get('added_items', 0)}")
+            print(f"- Updated: {stats.get('updated_items', 0)}")
+            print(f"- Skipped: {stats.get('skipped_items', 0)}")
+            print(f"- Errors: {stats.get('errors', 0)}")
+            print(f"- Duration: {stats.get('duration', 'Unknown')}")
+            
+            if stats.get('error'):
+                print(f"Error: {stats['error']}")
+                sys.exit(1)
+            
+        except Exception as e:
+            print(f"Error updating database: {e}")
+            sys.exit(1)
+    
+    elif args.command == "db-status":
+        from zotero_mcp.semantic_search import create_semantic_search
+        from pathlib import Path
+        import json
+        
+        # Determine config path
+        config_path = args.config_path
+        if not config_path:
+            config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        else:
+            config_path = Path(config_path)
+        
+        try:
+            # Create semantic search instance
+            search = create_semantic_search(str(config_path))
+            
+            # Get database status
+            status = search.get_database_status()
+            
+            print("=== Semantic Search Database Status ===")
+            
+            collection_info = status.get("collection_info", {})
+            print(f"Collection: {collection_info.get('name', 'Unknown')}")
+            print(f"Document count: {collection_info.get('count', 0)}")
+            print(f"Embedding model: {collection_info.get('embedding_model', 'Unknown')}")
+            print(f"Database path: {collection_info.get('persist_directory', 'Unknown')}")
+            
+            update_config = status.get("update_config", {})
+            print(f"\nUpdate configuration:")
+            print(f"- Auto update: {update_config.get('auto_update', False)}")
+            print(f"- Frequency: {update_config.get('update_frequency', 'manual')}")
+            print(f"- Last update: {update_config.get('last_update', 'Never')}")
+            print(f"- Should update: {status.get('should_update', False)}")
+            
+            if collection_info.get('error'):
+                print(f"\nError: {collection_info['error']}")
+            
+        except Exception as e:
+            print(f"Error getting database status: {e}")
+            sys.exit(1)
     
     elif args.command == "serve":
         # Get transport with a default value if not specified

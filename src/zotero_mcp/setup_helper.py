@@ -9,6 +9,7 @@ by finding the installed executable and updating Claude Desktop's config.
 """
 
 import argparse
+import getpass
 import json
 import os
 import shutil
@@ -119,7 +120,169 @@ def find_claude_config():
     return default_path
 
 
-def update_claude_config(config_path, zotero_mcp_path, local=True, api_key=None, library_id=None, library_type="user"):
+def setup_semantic_search() -> dict:
+    """Interactive setup for semantic search configuration."""
+    print("\n=== Semantic Search Configuration ===")
+    print("Configure embedding models for semantic search over your Zotero library.")
+    
+    # Choose embedding model
+    print("\nAvailable embedding models:")
+    print("1. Default (all-MiniLM-L6-v2) - Free, runs locally")
+    print("2. OpenAI - High quality, requires API key")
+    print("3. Gemini - Google's embedding model, requires API key")
+    
+    while True:
+        choice = input("\nChoose embedding model (1-3): ").strip()
+        if choice in ["1", "2", "3"]:
+            break
+        print("Please enter 1, 2, or 3")
+    
+    config = {}
+    
+    if choice == "1":
+        config["embedding_model"] = "default"
+        print("Using default embedding model (all-MiniLM-L6-v2)")
+    
+    elif choice == "2":
+        config["embedding_model"] = "openai"
+        
+        # Choose OpenAI model
+        print("\nOpenAI embedding models:")
+        print("1. text-embedding-3-small (recommended, faster)")
+        print("2. text-embedding-3-large (higher quality, slower)")
+        
+        while True:
+            model_choice = input("Choose OpenAI model (1-2): ").strip()
+            if model_choice in ["1", "2"]:
+                break
+            print("Please enter 1 or 2")
+        
+        if model_choice == "1":
+            config["embedding_config"] = {"model_name": "text-embedding-3-small"}
+        else:
+            config["embedding_config"] = {"model_name": "text-embedding-3-large"}
+        
+        # Get API key
+        api_key = getpass.getpass("Enter your OpenAI API key (hidden): ").strip()
+        if api_key:
+            config["embedding_config"]["api_key"] = api_key
+        else:
+            print("Warning: No API key provided. Set OPENAI_API_KEY environment variable.")
+    
+    elif choice == "3":
+        config["embedding_model"] = "gemini"
+        
+        # Choose Gemini model
+        print("\nGemini embedding models:")
+        print("1. models/text-embedding-004 (recommended)")
+        print("2. models/gemini-embedding-exp-03-07 (experimental)")
+        
+        while True:
+            model_choice = input("Choose Gemini model (1-2): ").strip()
+            if model_choice in ["1", "2"]:
+                break
+            print("Please enter 1 or 2")
+        
+        if model_choice == "1":
+            config["embedding_config"] = {"model_name": "models/text-embedding-004"}
+        else:
+            config["embedding_config"] = {"model_name": "models/gemini-embedding-exp-03-07"}
+        
+        # Get API key
+        api_key = getpass.getpass("Enter your Gemini API key (hidden): ").strip()
+        if api_key:
+            config["embedding_config"]["api_key"] = api_key
+        else:
+            print("Warning: No API key provided. Set GEMINI_API_KEY environment variable.")
+    
+    # Configure update frequency
+    print("\n=== Database Update Configuration ===")
+    print("Configure how often the semantic search database is updated:")
+    print("1. Manual - Update only when you run 'zotero-mcp update-db'")
+    print("2. Auto - Automatically update on server startup")
+    print("3. Daily - Automatically update once per day")
+    print("4. Every N days - Automatically update every N days")
+    
+    while True:
+        update_choice = input("\nChoose update frequency (1-4): ").strip()
+        if update_choice in ["1", "2", "3", "4"]:
+            break
+        print("Please enter 1, 2, 3, or 4")
+    
+    update_config = {}
+    
+    if update_choice == "1":
+        update_config = {
+            "auto_update": False,
+            "update_frequency": "manual"
+        }
+        print("Database will only be updated manually.")
+    elif update_choice == "2":
+        update_config = {
+            "auto_update": True,
+            "update_frequency": "startup"
+        }
+        print("Database will be updated every time the server starts.")
+    elif update_choice == "3":
+        update_config = {
+            "auto_update": True,
+            "update_frequency": "daily"
+        }
+        print("Database will be updated once per day.")
+    elif update_choice == "4":
+        while True:
+            try:
+                days = int(input("Enter number of days between updates: ").strip())
+                if days > 0:
+                    break
+                print("Please enter a positive number")
+            except ValueError:
+                print("Please enter a valid number")
+        
+        update_config = {
+            "auto_update": True,
+            "update_frequency": f"every_{days}",
+            "update_days": days
+        }
+        print(f"Database will be updated every {days} days.")
+    
+    config["update_config"] = update_config
+    
+    return config
+
+
+def save_semantic_search_config(config: dict, config_path: Path) -> bool:
+    """Save semantic search configuration to file."""
+    try:
+        # Ensure config directory exists
+        config_dir = config_path.parent
+        config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load existing config or create new one
+        full_config = {}
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    full_config = json.load(f)
+            except json.JSONDecodeError:
+                print(f"Warning: Existing config file is invalid JSON, creating new one")
+        
+        # Add semantic search config
+        full_config["semantic_search"] = config
+        
+        # Write config
+        with open(config_path, 'w') as f:
+            json.dump(full_config, f, indent=2)
+        
+        print(f"Semantic search configuration saved to: {config_path}")
+        return True
+        
+    except Exception as e:
+        print(f"Error saving semantic search config: {e}")
+        return False
+
+
+def update_claude_config(config_path, zotero_mcp_path, local=True, api_key=None, library_id=None, library_type="user", semantic_config=None):
     """Update Claude Desktop config to add zotero-mcp."""
     # Create directory if it doesn't exist
     config_dir = config_path.parent
@@ -156,6 +319,23 @@ def update_claude_config(config_path, zotero_mcp_path, local=True, api_key=None,
         if library_type:
             env_settings["ZOTERO_LIBRARY_TYPE"] = library_type
     
+    # Add semantic search settings if provided
+    if semantic_config:
+        env_settings["ZOTERO_EMBEDDING_MODEL"] = semantic_config.get("embedding_model", "default")
+        
+        embedding_config = semantic_config.get("embedding_config", {})
+        if semantic_config.get("embedding_model") == "openai":
+            if api_key := embedding_config.get("api_key"):
+                env_settings["OPENAI_API_KEY"] = api_key
+            if model := embedding_config.get("model_name"):
+                env_settings["OPENAI_EMBEDDING_MODEL"] = model
+        
+        elif semantic_config.get("embedding_model") == "gemini":
+            if api_key := embedding_config.get("api_key"):
+                env_settings["GEMINI_API_KEY"] = api_key
+            if model := embedding_config.get("model_name"):
+                env_settings["GEMINI_EMBEDDING_MODEL"] = model
+    
     # Add or update zotero config
     config["mcpServers"]["zotero"] = {
         "command": zotero_mcp_path,
@@ -183,6 +363,10 @@ def main(cli_args=None):
     parser.add_argument("--library-type", choices=["user", "group"], default="user", 
                         help="Zotero library type (only needed with --no-local)")
     parser.add_argument("--config-path", help="Path to Claude Desktop config file")
+    parser.add_argument("--skip-semantic-search", action="store_true", 
+                        help="Skip semantic search configuration")
+    parser.add_argument("--semantic-config-only", action="store_true",
+                        help="Only configure semantic search, skip Zotero setup")
     
     # If this is being called from CLI with existing args
     if cli_args is not None and hasattr(cli_args, 'no_local'):
@@ -192,6 +376,24 @@ def main(cli_args=None):
         # Otherwise parse from command line
         args = parser.parse_args()
         print("Parsed arguments from command line")
+    
+    # Handle semantic search only configuration
+    if args.semantic_config_only:
+        print("Configuring semantic search only...")
+        semantic_config = setup_semantic_search()
+        
+        # Determine config path for semantic search
+        config_dir = Path.home() / ".config" / "zotero-mcp"
+        config_path = config_dir / "config.json"
+        
+        if save_semantic_search_config(semantic_config, config_path):
+            print("\nSemantic search configuration complete!")
+            print(f"Configuration saved to: {config_path}")
+            print("\nTo initialize the database, run: zotero-mcp update-db")
+            return 0
+        else:
+            print("\nSemantic search configuration failed.")
+            return 1
     
     # Find zotero-mcp executable
     exe_path = find_executable()
@@ -218,6 +420,18 @@ def main(cli_args=None):
     library_id = args.library_id
     library_type = args.library_type
     
+    # Configure semantic search if not skipped
+    semantic_config = None
+    if not args.skip_semantic_search:
+        print("\nWould you like to configure semantic search? (y/n): ", end="")
+        if input().strip().lower() in ['y', 'yes']:
+            semantic_config = setup_semantic_search()
+            
+            # Save semantic search config to separate file
+            semantic_config_dir = Path.home() / ".config" / "zotero-mcp"
+            semantic_config_path = semantic_config_dir / "config.json"
+            save_semantic_search_config(semantic_config, semantic_config_path)
+    
     print(f"\nSetup with the following settings:")
     print(f"  Local API: {use_local}")
     if not use_local:
@@ -232,7 +446,8 @@ def main(cli_args=None):
             local=use_local,
             api_key=api_key,
             library_id=library_id,
-            library_type=library_type
+            library_type=library_type,
+            semantic_config=semantic_config
         )
         
         if updated_config_path:
@@ -240,6 +455,12 @@ def main(cli_args=None):
             print("To use Zotero in Claude Desktop:")
             print("1. Restart Claude Desktop if it's running")
             print("2. In Claude, type: /tools zotero")
+            
+            if semantic_config:
+                print("\nSemantic Search:")
+                print("- Configured with", semantic_config.get("embedding_model", "default"), "embedding model")
+                print("- To initialize the database, run: zotero-mcp update-db")
+                print("- Use zotero_semantic_search tool in Claude for AI-powered search")
             
             if use_local:
                 print("\nNote: Make sure Zotero desktop is running and the local API is enabled in preferences.")

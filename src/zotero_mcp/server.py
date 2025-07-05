@@ -6,6 +6,9 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import os
 import uuid
 import tempfile
+import asyncio
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastmcp import Context, FastMCP
 
@@ -19,10 +22,48 @@ from zotero_mcp.client import (
 )
 from zotero_mcp.utils import format_creators
 
+
+@asynccontextmanager
+async def server_lifespan(server: FastMCP):
+    """Manage server startup and shutdown lifecycle."""
+    print("Starting Zotero MCP server...")
+    
+    # Check for semantic search auto-update on startup
+    try:
+        from zotero_mcp.semantic_search import create_semantic_search
+        
+        config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        
+        if config_path.exists():
+            search = create_semantic_search(str(config_path))
+            
+            if search.should_update_database():
+                print("Auto-updating semantic search database...")
+                
+                # Run update in background to avoid blocking server startup
+                async def background_update():
+                    try:
+                        stats = search.update_database()
+                        print(f"Database update completed: {stats.get('processed_items', 0)} items processed")
+                    except Exception as e:
+                        print(f"Background database update failed: {e}")
+                
+                # Start background task
+                asyncio.create_task(background_update())
+    
+    except Exception as e:
+        print(f"Warning: Could not check semantic search auto-update: {e}")
+    
+    yield {}
+    
+    print("Shutting down Zotero MCP server...")
+
+
 # Create an MCP server with appropriate dependencies
 mcp = FastMCP(
     "Zotero",
-    dependencies=["pyzotero", "mcp[cli]", "python-dotenv", "markitdown", "fastmcp"],
+    dependencies=["pyzotero", "mcp[cli]", "python-dotenv", "markitdown", "fastmcp", "chromadb", "sentence-transformers", "openai", "google-genai"],
+    lifespan=server_lifespan,
 )
 
 
@@ -1626,3 +1667,244 @@ def create_note(
     except Exception as e:
         ctx.error(f"Error creating note: {str(e)}")
         return f"Error creating note: {str(e)}"
+
+
+@mcp.tool(
+    name="zotero_semantic_search",
+    description="Perform semantic search over your Zotero library using AI-powered embeddings."
+)
+def semantic_search(
+    query: str,
+    limit: int = 10,
+    filters: Optional[Dict[str, str]] = None,
+    *,
+    ctx: Context
+) -> str:
+    """
+    Perform semantic search over your Zotero library.
+    
+    Args:
+        query: Search query text - can be concepts, topics, or natural language descriptions
+        limit: Maximum number of results to return (default: 10)
+        filters: Optional metadata filters (e.g., {"item_type": "journalArticle"})
+        ctx: MCP context
+    
+    Returns:
+        Markdown-formatted search results with similarity scores
+    """
+    try:
+        if not query.strip():
+            return "Error: Search query cannot be empty"
+        
+        ctx.info(f"Performing semantic search for: '{query}'")
+        
+        # Import semantic search module
+        from zotero_mcp.semantic_search import create_semantic_search
+        from pathlib import Path
+        
+        # Determine config path
+        config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        
+        # Create semantic search instance
+        search = create_semantic_search(str(config_path))
+        
+        # Perform search
+        results = search.search(query=query, limit=limit, filters=filters)
+        
+        if results.get("error"):
+            return f"Semantic search error: {results['error']}"
+        
+        search_results = results.get("results", [])
+        
+        if not search_results:
+            return f"No semantically similar items found for query: '{query}'"
+        
+        # Format results as markdown
+        output = [f"# Semantic Search Results for '{query}'", ""]
+        output.append(f"Found {len(search_results)} similar items:")
+        output.append("")
+        
+        for i, result in enumerate(search_results, 1):
+            similarity_score = result.get("similarity_score", 0)
+            metadata = result.get("metadata", {})
+            zotero_item = result.get("zotero_item", {})
+            
+            if zotero_item:
+                data = zotero_item.get("data", {})
+                title = data.get("title", "Untitled")
+                item_type = data.get("itemType", "unknown")
+                key = result.get("item_key", "")
+                
+                # Format creators
+                creators = data.get("creators", [])
+                creators_str = format_creators(creators)
+                
+                output.append(f"## {i}. {title}")
+                output.append(f"**Similarity Score:** {similarity_score:.3f}")
+                output.append(f"**Type:** {item_type}")
+                output.append(f"**Item Key:** {key}")
+                output.append(f"**Authors:** {creators_str}")
+                
+                # Add date if available
+                if date := data.get("date"):
+                    output.append(f"**Date:** {date}")
+                
+                # Add abstract snippet if present
+                if abstract := data.get("abstractNote"):
+                    abstract_snippet = abstract[:200] + "..." if len(abstract) > 200 else abstract
+                    output.append(f"**Abstract:** {abstract_snippet}")
+                
+                # Add tags if present
+                if tags := data.get("tags"):
+                    tag_list = [f"`{tag['tag']}`" for tag in tags]
+                    if tag_list:
+                        output.append(f"**Tags:** {' '.join(tag_list)}")
+                
+                # Show matched text snippet
+                matched_text = result.get("matched_text", "")
+                if matched_text:
+                    snippet = matched_text[:300] + "..." if len(matched_text) > 300 else matched_text
+                    output.append(f"**Matched Content:** {snippet}")
+                
+                output.append("")  # Empty line between items
+            else:
+                # Fallback if full Zotero item not available
+                output.append(f"## {i}. Item {result.get('item_key', 'Unknown')}")
+                output.append(f"**Similarity Score:** {similarity_score:.3f}")
+                if error := result.get("error"):
+                    output.append(f"**Error:** {error}")
+                output.append("")
+        
+        return "\n".join(output)
+    
+    except Exception as e:
+        ctx.error(f"Error in semantic search: {str(e)}")
+        return f"Error in semantic search: {str(e)}"
+
+
+@mcp.tool(
+    name="zotero_update_search_database",
+    description="Update the semantic search database with latest Zotero items."
+)
+def update_search_database(
+    force_rebuild: bool = False,
+    limit: Optional[int] = None,
+    *,
+    ctx: Context
+) -> str:
+    """
+    Update the semantic search database.
+    
+    Args:
+        force_rebuild: Whether to rebuild the entire database from scratch
+        limit: Limit number of items to process (useful for testing)
+        ctx: MCP context
+    
+    Returns:
+        Update status and statistics
+    """
+    try:
+        ctx.info("Starting semantic search database update...")
+        
+        # Import semantic search module
+        from zotero_mcp.semantic_search import create_semantic_search
+        from pathlib import Path
+        
+        # Determine config path
+        config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        
+        # Create semantic search instance
+        search = create_semantic_search(str(config_path))
+        
+        # Perform update
+        stats = search.update_database(
+            force_full_rebuild=force_rebuild,
+            limit=limit
+        )
+        
+        # Format results
+        output = ["# Database Update Results", ""]
+        
+        if stats.get("error"):
+            output.append(f"**Error:** {stats['error']}")
+        else:
+            output.append(f"**Total items:** {stats.get('total_items', 0)}")
+            output.append(f"**Processed:** {stats.get('processed_items', 0)}")
+            output.append(f"**Added:** {stats.get('added_items', 0)}")
+            output.append(f"**Updated:** {stats.get('updated_items', 0)}")
+            output.append(f"**Skipped:** {stats.get('skipped_items', 0)}")
+            output.append(f"**Errors:** {stats.get('errors', 0)}")
+            output.append(f"**Duration:** {stats.get('duration', 'Unknown')}")
+            
+            if stats.get('start_time'):
+                output.append(f"**Started:** {stats['start_time']}")
+            if stats.get('end_time'):
+                output.append(f"**Completed:** {stats['end_time']}")
+        
+        return "\n".join(output)
+    
+    except Exception as e:
+        ctx.error(f"Error updating search database: {str(e)}")
+        return f"Error updating search database: {str(e)}"
+
+
+@mcp.tool(
+    name="zotero_get_search_database_status",
+    description="Get status information about the semantic search database."
+)
+def get_search_database_status(*, ctx: Context) -> str:
+    """
+    Get semantic search database status.
+    
+    Args:
+        ctx: MCP context
+    
+    Returns:
+        Database status information
+    """
+    try:
+        ctx.info("Getting semantic search database status...")
+        
+        # Import semantic search module
+        from zotero_mcp.semantic_search import create_semantic_search
+        from pathlib import Path
+        
+        # Determine config path
+        config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        
+        # Create semantic search instance
+        search = create_semantic_search(str(config_path))
+        
+        # Get status
+        status = search.get_database_status()
+        
+        # Format results
+        output = ["# Semantic Search Database Status", ""]
+        
+        collection_info = status.get("collection_info", {})
+        output.append("## Collection Information")
+        output.append(f"**Name:** {collection_info.get('name', 'Unknown')}")
+        output.append(f"**Document Count:** {collection_info.get('count', 0)}")
+        output.append(f"**Embedding Model:** {collection_info.get('embedding_model', 'Unknown')}")
+        output.append(f"**Database Path:** {collection_info.get('persist_directory', 'Unknown')}")
+        
+        if collection_info.get('error'):
+            output.append(f"**Error:** {collection_info['error']}")
+        
+        output.append("")
+        
+        update_config = status.get("update_config", {})
+        output.append("## Update Configuration")
+        output.append(f"**Auto Update:** {update_config.get('auto_update', False)}")
+        output.append(f"**Frequency:** {update_config.get('update_frequency', 'manual')}")
+        output.append(f"**Last Update:** {update_config.get('last_update', 'Never')}")
+        output.append(f"**Should Update Now:** {status.get('should_update', False)}")
+        
+        if update_config.get('update_days'):
+            output.append(f"**Update Interval:** Every {update_config['update_days']} days")
+        
+        return "\n".join(output)
+    
+    except Exception as e:
+        ctx.error(f"Error getting database status: {str(e)}")
+        return f"Error getting database status: {str(e)}"
