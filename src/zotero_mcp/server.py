@@ -7,6 +7,7 @@ import os
 import uuid
 import tempfile
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -1671,12 +1672,12 @@ def create_note(
 
 @mcp.tool(
     name="zotero_semantic_search",
-    description="Perform semantic search over your Zotero library using AI-powered embeddings."
+    description="Prioritized search tool. Perform semantic search over your Zotero library using AI-powered embeddings."
 )
 def semantic_search(
     query: str,
     limit: int = 10,
-    filters: Optional[Dict[str, str]] = None,
+    filters: Optional[Union[Dict[str, str], str]] = None,
     *,
     ctx: Context
 ) -> str:
@@ -1686,7 +1687,7 @@ def semantic_search(
     Args:
         query: Search query text - can be concepts, topics, or natural language descriptions
         limit: Maximum number of results to return (default: 10)
-        filters: Optional metadata filters (e.g., {"item_type": "journalArticle"})
+        filters: Optional metadata filters as dict or JSON string. Example: {"item_type": "note"}
         ctx: MCP context
     
     Returns:
@@ -1695,6 +1696,29 @@ def semantic_search(
     try:
         if not query.strip():
             return "Error: Search query cannot be empty"
+        
+        # Parse and validate filters parameter
+        if filters is not None:
+            # Handle JSON string input
+            if isinstance(filters, str):
+                try:
+                    filters = json.loads(filters)
+                    ctx.info(f"Parsed JSON string filters: {filters}")
+                except json.JSONDecodeError as e:
+                    return f"Error: Invalid JSON in filters parameter: {str(e)}"
+            
+            # Validate it's a dictionary
+            if not isinstance(filters, dict):
+                return "Error: filters parameter must be a dictionary or JSON string. Example: {\"item_type\": \"note\"}"
+            
+            # Automatically translate common field names
+            if "itemType" in filters:
+                filters["item_type"] = filters.pop("itemType")
+                ctx.info(f"Automatically translated 'itemType' to 'item_type': {filters}")
+            
+            # Additional field name translations can be added here
+            # Example: if "creatorType" in filters:
+            #     filters["creator_type"] = filters.pop("creatorType")
         
         ctx.info(f"Performing semantic search for: '{query}'")
         
