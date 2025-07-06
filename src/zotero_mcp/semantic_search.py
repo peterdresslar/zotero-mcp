@@ -257,10 +257,10 @@ class ZoteroSemanticSearch:
                 if not items:
                     break
                 
-                # Filter out attachments by default
+                # Filter out attachments and notes by default
                 filtered_items = [
                     item for item in items 
-                    if item.get("data", {}).get("itemType") != "attachment"
+                    if item.get("data", {}).get("itemType") not in ["attachment", "note"]
                 ]
                 
                 all_items.extend(filtered_items)
