@@ -771,8 +771,8 @@ def get_recent(
 )
 def batch_update_tags(
     query: str,
-    add_tags: Optional[List[str]] = None,
-    remove_tags: Optional[List[str]] = None,
+    add_tags: Optional[Union[List[str], str]] = None,
+    remove_tags: Optional[Union[List[str], str]] = None,
     limit: Union[int, str] = 50,
     *,
     ctx: Context
@@ -782,8 +782,8 @@ def batch_update_tags(
     
     Args:
         query: Search query to find items to update
-        add_tags: List of tags to add to matched items
-        remove_tags: List of tags to remove from matched items
+        add_tags: List of tags to add to matched items (can be list or JSON string)
+        remove_tags: List of tags to remove from matched items (can be list or JSON string)
         limit: Maximum number of items to process
         ctx: MCP context
     
@@ -796,6 +796,28 @@ def batch_update_tags(
         
         if not add_tags and not remove_tags:
             return "Error: You must specify either tags to add or tags to remove"
+        
+        # Debug logging... commented out for now but could be useful in future.
+        # ctx.info(f"add_tags type: {type(add_tags)}, value: {add_tags}")
+        # ctx.info(f"remove_tags type: {type(remove_tags)}, value: {remove_tags}")
+        
+        # Handle case where add_tags might be a JSON string instead of list
+        if add_tags and isinstance(add_tags, str):
+            try:
+                import json
+                add_tags = json.loads(add_tags)
+                ctx.info(f"Parsed add_tags from JSON string: {add_tags}")
+            except json.JSONDecodeError:
+                return f"Error: add_tags appears to be malformed JSON string: {add_tags}"
+        
+        # Handle case where remove_tags might be a JSON string instead of list  
+        if remove_tags and isinstance(remove_tags, str):
+            try:
+                import json
+                remove_tags = json.loads(remove_tags)
+                ctx.info(f"Parsed remove_tags from JSON string: {remove_tags}")
+            except json.JSONDecodeError:
+                return f"Error: remove_tags appears to be malformed JSON string: {remove_tags}"
         
         ctx.info(f"Batch updating tags for items matching '{query}'")
         zot = get_zotero_client()
@@ -851,10 +873,18 @@ def batch_update_tags(
                         needs_update = True
             
             # Update the item if needed
+            # Since we are logging errors we might as well log the update.
             if needs_update:
-                item["data"]["tags"] = current_tags
-                zot.update_item(item)
-                updated_count += 1
+                try:
+                    item["data"]["tags"] = current_tags
+                    ctx.info(f"Updating item {item.get('key', 'unknown')} with tags: {current_tags}")
+                    result = zot.update_item(item)
+                    ctx.info(f"Update result: {result}")
+                    updated_count += 1
+                except Exception as e:
+                    ctx.error(f"Failed to update item {item.get('key', 'unknown')}: {str(e)}")
+                    # Continue with other items instead of failing completely
+                    skipped_count += 1
             else:
                 skipped_count += 1
         
