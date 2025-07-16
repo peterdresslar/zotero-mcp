@@ -266,45 +266,45 @@ def setup_semantic_search(existing_semantic_config: dict = None, semantic_config
     return config
 
 
-def save_semantic_search_config(config: dict, config_path: Path) -> bool:
+def save_semantic_search_config(config: dict, semantic_config_path: Path) -> bool:
     """Save semantic search configuration to file."""
     try:
         # Ensure config directory exists
-        config_dir = config_path.parent
-        config_dir.mkdir(parents=True, exist_ok=True)
+        semantic_config_dir = semantic_config_path.parent
+        semantic_config_dir.mkdir(parents=True, exist_ok=True)
         
         # Load existing config or create new one
-        full_config = {}
-        if config_path.exists():
+        full_semantic_config = {}
+        if semantic_config_path.exists():
             try:
-                with open(config_path, 'r') as f:
-                    full_config = json.load(f)
+                with open(semantic_config_path, 'r') as f:
+                    full_semantic_config = json.load(f)
             except json.JSONDecodeError:
-                print("Warning: Existing config file is invalid JSON, creating new one")
+                print("Warning: Existing semantic search config file is invalid JSON, creating new one")
         
         # Add semantic search config
-        full_config["semantic_search"] = config
+        full_semantic_config["semantic_search"] = config
         
         # Write config
-        with open(config_path, 'w') as f:
-            json.dump(full_config, f, indent=2)
+        with open(semantic_config_path, 'w') as f:
+            json.dump(full_semantic_config, f, indent=2)
         
-        print(f"Semantic search configuration saved to: {config_path}")
+        print(f"Semantic search configuration saved to: {semantic_config_path}")
         return True
         
     except Exception as e:
         print(f"Error saving semantic search config: {e}")
         return False
     
-def load_semantic_search_config(config_path: Path) -> dict:
+def load_semantic_search_config(semantic_config_path: Path) -> dict:
     """Load existing semantic search configuration."""
-    if not config_path.exists():
+    if not semantic_config_path.exists():
         return {}
     
     try:
-        with open(config_path, 'r') as f:
-            full_config = json.load(f)
-        return full_config.get("semantic_search", {})
+        with open(semantic_config_path, 'r') as f:
+            full_semantic_config = json.load(f)
+        return full_semantic_config.get("semantic_search", {})
     except json.JSONDecodeError as e:
         print(f"Warning: Could not parse config file as JSON: {e}")
         return {}
@@ -409,9 +409,9 @@ def main(cli_args=None):
         print("Parsed arguments from command line")
 
     # Determine config path for semantic search
-    config_dir = Path.home() / ".config" / "zotero-mcp"
-    config_path = config_dir / "config.json"
-    existing_semantic_config = load_semantic_search_config(config_path)
+    semantic_config_dir = Path.home() / ".config" / "zotero-mcp"
+    semantic_config_path = semantic_config_dir / "config.json"
+    existing_semantic_config = load_semantic_search_config(semantic_config_path)
     semantic_config_changed = False
     
     # Handle semantic search only configuration
@@ -421,9 +421,9 @@ def main(cli_args=None):
         semantic_config_changed = existing_semantic_config != new_semantic_config
         # only save if semantic config changed
         if semantic_config_changed:
-            if save_semantic_search_config(new_semantic_config, config_path):
+            if save_semantic_search_config(new_semantic_config, semantic_config_path):
                 print("\nSemantic search configuration complete!")
-                print(f"Configuration saved to: {config_path}")
+                print(f"Configuration saved to: {semantic_config_path}")
                 print("\nTo initialize the database, run: zotero-mcp update-db")
                 return 0
             else:
@@ -470,13 +470,10 @@ def main(cli_args=None):
         # Either way:    
         if input().strip().lower() in ['y', 'yes']:
             new_semantic_config = setup_semantic_search(existing_semantic_config)
-            semantic_config_changed = existing_semantic_config != new_semantic_config
-
-            if semantic_config_changed:
-                # Save semantic search config to separate file
-                semantic_config_dir = Path.home() / ".config" / "zotero-mcp"
-                semantic_config_path = semantic_config_dir / "config.json"
-                save_semantic_search_config(new_semantic_config, semantic_config_path)
+            if existing_semantic_config != new_semantic_config:
+                semantic_config_changed = True
+                existing_semantic_config = new_semantic_config  # Update the config to use
+                save_semantic_search_config(existing_semantic_config, semantic_config_path)
     
     print("\nSetup with the following settings:")
     print(f"  Local API: {use_local}")
@@ -485,8 +482,8 @@ def main(cli_args=None):
         print(f"  Library ID: {library_id or 'Not provided'}")
         print(f"  Library Type: {library_type}")
 
-    # Use new semantic config if it changed, otherwise use existing
-    semantic_config = new_semantic_config if semantic_config_changed else existing_semantic_config
+    # Use the potentially updated semantic config
+    semantic_config = existing_semantic_config
 
     # Update Claude Desktop config
     try:
@@ -510,9 +507,7 @@ def main(cli_args=None):
                 print("\nSemantic Search:")
                 print("- Configured with", semantic_config.get("embedding_model", "default"), "embedding model")
                 print("- To change the configuration, run: zotero-mcp setup --semantic-config-only")
-                print("- Or edit the config file directly.")
                 print("- The config file is located at: ~/.config/zotero-mcp/config.json")
-                print("- The semantic search configuration is located at: ~/.config/zotero-mcp/config.json")
                 print("- You may need to rebuild your database: zotero-mcp update-db --force-rebuild")
             else:
                 print("\nSemantic Search:")
