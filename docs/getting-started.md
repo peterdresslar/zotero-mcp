@@ -75,6 +75,7 @@ To use Zotero MCP with Claude Desktop:
 ## Integrating with Chorus.sh
 
 [Chorus.sh](https://chorus.sh) is a popular multi-chatbot interface that configures MCP servers through an online preferences form rather than config files.
+This would be one possible path to working with Zotero with chatbots other than Claude.
 
 To set up Zotero MCP with Chorus.sh:
 
