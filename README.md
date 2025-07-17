@@ -250,6 +250,7 @@ zotero-mcp serve --transport stdio|streamable-http|sse
 # Setup and configuration
 zotero-mcp setup --help                    # Get help on setup options
 zotero-mcp setup --semantic-config-only    # Configure only semantic search
+zotero-mcp setup-info                      # Show installation path and config info for MCP clients
 
 # Updates and maintenance
 zotero-mcp update                          # Update to latest version
@@ -312,6 +313,8 @@ The first time you use PDF annotation features, the necessary tools will be auto
 - **No results found**: Ensure Zotero is running and the local API is enabled
 - **Can't connect to library**: Check your API key and library ID if using web API
 - **Full text not available**: Make sure you're using Zotero 7+ for local full-text access
+- **Local library limitations**: Some functionality (tagging, library modifications) may not work with local JS API. Consider using web library setup for full functionality. (See the [docs](docs/getting-started.md#local-library-limitations) for more info.)
+- **Installation/search option switching issues**: Database problems from changing install methods or search options can often be resolved with `zotero-mcp update-db --force-rebuild`
 
 ### Semantic Search Issues
 - **"Missing required environment variables" when running update-db**: Run `zotero-mcp setup` to configure your environment, or the CLI will automatically load settings from Claude Desktop config

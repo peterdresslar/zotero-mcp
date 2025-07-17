@@ -5,6 +5,8 @@ Command-line interface for Zotero MCP server.
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -128,6 +130,9 @@ def main():
     # Version command
     version_parser = subparsers.add_parser("version", help="Print version information")
     
+    # Setup info command
+    setup_info_parser = subparsers.add_parser("setup-info", help="Show installation path and configuration info for MCP clients")
+    
     args = parser.parse_args()
     
     # If no command is provided, default to 'serve'
@@ -141,6 +146,79 @@ def main():
         print(f"Zotero MCP v{__version__}")
         sys.exit(0)
     
+    elif args.command == "setup-info":
+        
+        # Get the installation path
+        executable_path = shutil.which("zotero-mcp")
+        if not executable_path:
+            executable_path = sys.executable + " -m zotero_mcp"
+        
+        # Load current environment configuration
+        claude_env_vars = load_claude_desktop_env_vars()
+        
+        # If no Claude config found, use defaults
+        if not claude_env_vars:
+            claude_env_vars = {"ZOTERO_LOCAL": "true"}
+        
+        print("=== Zotero MCP Setup Information ===")
+        print()
+        print("🔧 Installation Details:")
+        print(f"  Command path: {executable_path}")
+        print(f"  Python path: {sys.executable}")
+        
+        # Detect installation method
+        try:
+            # Check if installed via uv
+            result = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=5)
+            if "zotero-mcp" in result.stdout:
+                print("  Installation method: uv tool")
+            else:
+                # Check pip
+                result = subprocess.run([sys.executable, "-m", "pip", "show", "zotero-mcp"], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    print("  Installation method: pip")
+                else:
+                    print("  Installation method: unknown")
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            print("  Installation method: unknown")
+        
+        print()
+        print("⚙️  MCP Client Configuration:")
+        print(f"  Command: {executable_path}")
+        print("  Arguments: [] (empty)")
+        
+        # Show environment variables in JSON format
+        print(f"  Environment (single-line): {json.dumps(claude_env_vars, separators=(',', ':'))}")
+        
+        print()
+        print("For Claude Desktop (claude_desktop_config.json):")
+        config_snippet = {
+            "mcpServers": {
+                "zotero": {
+                    "command": executable_path,
+                    "env": claude_env_vars
+                }
+            }
+        }
+        print(json.dumps(config_snippet, indent=2))
+        
+        # Show semantic search database info
+        print()
+        print("🧠 Semantic Search Database:")
+        
+        # Check for semantic search config
+        config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        if config_path.exists():
+            print("  Status: ✅ Configuration file found")
+            print(f"  Config path: {config_path}")
+            print("  💡 Run 'zotero-mcp db-status' for detailed database info")
+        else:
+            print("  Status: ⚠️ Not configured")
+            print("  💡 Run 'zotero-mcp setup' to configure semantic search")
+        
+        sys.exit(0)
+    
     elif args.command == "setup":
         from zotero_mcp.setup_helper import main as setup_main
         sys.exit(setup_main(args))
@@ -150,7 +228,6 @@ def main():
         setup_zotero_environment()
         
         from zotero_mcp.semantic_search import create_semantic_search
-        from pathlib import Path
         
         # Determine config path
         config_path = args.config_path
@@ -193,8 +270,6 @@ def main():
         setup_zotero_environment()
         
         from zotero_mcp.semantic_search import create_semantic_search
-        from pathlib import Path
-        import json
         
         # Determine config path
         config_path = args.config_path
