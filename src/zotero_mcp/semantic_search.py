@@ -17,7 +17,8 @@ from pyzotero import zotero
 
 from .chroma_client import ChromaClient, create_chroma_client
 from .client import get_zotero_client
-from .utils import format_creators
+from .utils import format_creators, is_local_mode
+from .local_db import LocalZoteroReader, get_local_zotero_reader
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,148 @@ class ZoteroSemanticSearch:
         
         return False
     
+    def _get_items_from_source(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get items from either local database or API based on environment.
+        
+        Args:
+            limit: Optional limit on number of items
+            
+        Returns:
+            List of items in API-compatible format
+        """
+        if is_local_mode():
+            return self._get_items_from_local_db(limit)
+        else:
+            return self._get_items_from_api(limit)
+    
+    def _get_items_from_local_db(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get items from local Zotero database.
+        
+        Args:
+            limit: Optional limit on number of items
+            
+        Returns:
+            List of items in API-compatible format
+        """
+        logger.info("Fetching items from local Zotero database...")
+        
+        try:
+            with LocalZoteroReader() as reader:
+                local_items = reader.get_items_with_text(limit=limit)
+                
+                # Convert to API-compatible format
+                api_items = []
+                for item in local_items:
+                    # Create API-compatible item structure
+                    api_item = {
+                        "key": item.key,
+                        "version": 0,  # Local items don't have versions
+                        "data": {
+                            "key": item.key,
+                            "itemType": "journalArticle",  # Default, could be improved
+                            "title": item.title or "",
+                            "abstractNote": item.abstract or "",
+                            "extra": item.extra or "",
+                            "dateAdded": item.date_added,
+                            "dateModified": item.date_modified,
+                            "creators": self._parse_creators_string(item.creators) if item.creators else []
+                        }
+                    }
+                    
+                    # Add notes if available
+                    if item.notes:
+                        api_item["data"]["notes"] = item.notes
+                    
+                    api_items.append(api_item)
+                
+                logger.info(f"Retrieved {len(api_items)} items from local database")
+                return api_items
+                
+        except Exception as e:
+            logger.error(f"Error reading from local database: {e}")
+            logger.info("Falling back to API...")
+            return self._get_items_from_api(limit)
+    
+    def _parse_creators_string(self, creators_str: str) -> List[Dict[str, str]]:
+        """
+        Parse creators string from local DB into API format.
+        
+        Args:
+            creators_str: String like "Smith, John; Doe, Jane"
+            
+        Returns:
+            List of creator objects
+        """
+        if not creators_str:
+            return []
+        
+        creators = []
+        for creator in creators_str.split(';'):
+            creator = creator.strip()
+            if not creator:
+                continue
+                
+            if ',' in creator:
+                last, first = creator.split(',', 1)
+                creators.append({
+                    "creatorType": "author",
+                    "firstName": first.strip(),
+                    "lastName": last.strip()
+                })
+            else:
+                creators.append({
+                    "creatorType": "author", 
+                    "name": creator
+                })
+        
+        return creators
+    
+    def _get_items_from_api(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get items from Zotero API (original implementation).
+        
+        Args:
+            limit: Optional limit on number of items
+            
+        Returns:
+            List of items from API
+        """
+        logger.info("Fetching items from Zotero API...")
+        
+        # Fetch items in batches to handle large libraries
+        batch_size = 100
+        start = 0
+        all_items = []
+        
+        while True:
+            batch_params = {"start": start, "limit": batch_size}
+            if limit and len(all_items) >= limit:
+                break
+            
+            items = self.zotero_client.items(**batch_params)
+            if not items:
+                break
+            
+            # Filter out attachments and notes by default
+            filtered_items = [
+                item for item in items 
+                if item.get("data", {}).get("itemType") not in ["attachment", "note"]
+            ]
+            
+            all_items.extend(filtered_items)
+            start += batch_size
+            
+            if len(items) < batch_size:
+                break
+        
+        if limit:
+            all_items = all_items[:limit]
+        
+        logger.info(f"Retrieved {len(all_items)} items from API")
+        return all_items
+    
     def update_database(self, 
                        force_full_rebuild: bool = False,
                        limit: Optional[int] = None) -> Dict[str, Any]:
@@ -240,37 +383,8 @@ class ZoteroSemanticSearch:
                 logger.info("Force rebuilding database...")
                 self.chroma_client.reset_collection()
             
-            # Get all items from Zotero
-            logger.info("Fetching items from Zotero...")
-            
-            # Fetch items in batches to handle large libraries
-            batch_size = 100
-            start = 0
-            all_items = []
-            
-            while True:
-                batch_params = {"start": start, "limit": batch_size}
-                if limit and len(all_items) >= limit:
-                    break
-                
-                items = self.zotero_client.items(**batch_params)
-                if not items:
-                    break
-                
-                # Filter out attachments and notes by default
-                filtered_items = [
-                    item for item in items 
-                    if item.get("data", {}).get("itemType") not in ["attachment", "note"]
-                ]
-                
-                all_items.extend(filtered_items)
-                start += batch_size
-                
-                if len(items) < batch_size:
-                    break
-            
-            if limit:
-                all_items = all_items[:limit]
+            # Get all items from either local DB or API
+            all_items = self._get_items_from_source(limit=limit)
             
             stats["total_items"] = len(all_items)
             logger.info(f"Found {stats['total_items']} items to process")
