@@ -72,6 +72,29 @@ To use Zotero MCP with Claude Desktop:
 
 4. Restart Claude Desktop
 
+## Integrating with Chorus.sh
+
+[Chorus.sh](https://chorus.sh) is a popular multi-chatbot interface that configures MCP servers through an online preferences form rather than config files.
+This would be one possible path to working with Zotero with chatbots other than Claude.
+
+To set up Zotero MCP with Chorus.sh:
+
+1. **Find your installation path**: 
+   - For uv: typically `/Users/USERNAME/.pyenv/versions/3.12.8/bin/zotero-mcp` on macOS
+   - For other methods: use `zotero-mcp --setup-info` to get the exact path and configuration details
+
+2. **Configure in Chorus.sh preferences**:
+   - **Command**: Enter the full path to your zotero-mcp installation
+   - **Arguments**: Leave empty (no custom --port or --host arguments needed unless set at config time)
+   - **Environment (JSON)**: Take your environment configuration JSON (including outer brackets), remove newlines, and paste as a single line
+
+3. **Example Environment JSON** (single line format):
+   ```json
+   {"ZOTERO_LOCAL": "true"}
+   ```
+
+Many other MCP consumers use similar configuration approaches with command path, arguments, and environment variables.
+
 ## Using with Other MCP Clients
 
 Zotero MCP works with any MCP-compatible client. You can start the server manually:
@@ -118,4 +141,20 @@ If you encounter issues:
 - Verify your library ID and type
 - Look for error messages in the Claude Desktop logs or MCP server output
 
-For more help, see the [full documentation](https://github.com/yourusername/zotero-mcp).
+### Local Library Limitations
+
+Some functionality will not work for local libraries due to the distinct differences with [Zotero's local JS API](https://www.zotero.org/support/dev/client_coding/javascript_api). For instance, tagging and other library modifications might not work as expected with the local API connection.
+
+**Workaround**: Even without web storage, a workaround for some of these functionalities might be to set up a web library, point the MCP at that, and then things like setting tags should work properly. We're thinking about better ways to work with local instances in future updates.
+
+### Database Issues
+
+Switching installs or install methods (sometimes to deal with failed installs), as well as toggling between search options, can sometimes lead to database problems. These can frequently be solved with:
+
+```bash
+zotero-mcp update-db --force-rebuild
+```
+
+Other than time waiting for the rebuild, there is generally little to no risk involved in triggering the rebuild - so if you're experiencing database-related issues, it's worth trying this command.
+
+For more help, try the discussions](https://github.com/54yyyu/zotero-mcp/discussions).
