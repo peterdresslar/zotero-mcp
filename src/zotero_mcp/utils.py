@@ -1,4 +1,3 @@
-import os
 from typing import List, Dict
 
 def format_creators(creators: List[Dict[str, str]]) -> str:
