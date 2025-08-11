@@ -366,7 +366,7 @@ class LocalZoteroReader:
         return items
 
     # Public helper to extract fulltext on demand for a specific item
-    def extract_fulltext_for_item(self, item_id: int) -> Optional[str]:
+    def extract_fulltext_for_item(self, item_id: int) -> Optional[tuple[str, str]]:
         return self._extract_fulltext_for_item(item_id)
     
     def get_item_by_key(self, key: str) -> Optional[ZoteroItem]:
