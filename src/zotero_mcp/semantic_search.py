@@ -241,7 +241,18 @@ class ZoteroSemanticSearch:
         logger.info("Fetching items from local Zotero database...")
         
         try:
-            with LocalZoteroReader() as reader:
+            # Load per-run config, including extraction limits if provided
+            pdf_max_pages = None
+            # If semantic_search config file exists, prefer its setting
+            try:
+                if self.config_path and os.path.exists(self.config_path):
+                    with open(self.config_path, 'r') as _f:
+                        _cfg = json.load(_f)
+                        pdf_max_pages = _cfg.get('semantic_search', {}).get('extraction', {}).get('pdf_max_pages')
+            except Exception:
+                pass
+
+            with LocalZoteroReader(pdf_max_pages=pdf_max_pages) as reader:
                 # Phase 1: fetch metadata only (fast)
                 print("Scanning local Zotero database for items...", flush=True)
                 local_items = reader.get_items_with_text(limit=limit, include_fulltext=False)

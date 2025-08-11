@@ -74,7 +74,7 @@ class LocalZoteroReader:
     without going through the Zotero API.
     """
     
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, pdf_max_pages: Optional[int] = None):
         """
         Initialize the local database reader.
         
@@ -83,6 +83,7 @@ class LocalZoteroReader:
         """
         self.db_path = db_path or self._find_zotero_db()
         self._connection: Optional[sqlite3.Connection] = None
+        self.pdf_max_pages: Optional[int] = pdf_max_pages
         # Reduce noise from pdfminer warnings
         try:
             logging.getLogger("pdfminer").setLevel(logging.ERROR)
@@ -169,12 +170,15 @@ class LocalZoteroReader:
         """Extract text from a PDF using pdfminer with a page cap to avoid stalls."""
         try:
             from pdfminer.high_level import extract_text  # type: ignore
-            # Allow override via env; default to first 10 pages for speed
-            max_pages_env = os.getenv("ZOTERO_PDF_MAXPAGES")
-            try:
-                maxpages = int(max_pages_env) if max_pages_env else 10
-            except ValueError:
-                maxpages = 10
+            # Determine page cap: config value > env > default (10)
+            if isinstance(self.pdf_max_pages, int) and self.pdf_max_pages > 0:
+                maxpages = self.pdf_max_pages
+            else:
+                max_pages_env = os.getenv("ZOTERO_PDF_MAXPAGES")
+                try:
+                    maxpages = int(max_pages_env) if max_pages_env else 10
+                except ValueError:
+                    maxpages = 10
             text = extract_text(str(file_path), maxpages=maxpages)
             return text or ""
         except Exception:

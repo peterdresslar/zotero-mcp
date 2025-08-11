@@ -261,7 +261,26 @@ def setup_semantic_search(existing_semantic_config: dict = None, semantic_config
         }
         print(f"Database will be updated every {days} days.")
     
+    # Configure extraction settings
+    print("\n=== Content Extraction Settings ===")
+    print("Set a page cap for PDF extraction to balance speed vs. coverage.")
+    print("Press Enter to use the default.")
+    default_pdf_max = existing_semantic_config.get("extraction", {}).get("pdf_max_pages", 10) if existing_semantic_config else 10
+    while True:
+        raw = input(f"PDF max pages [{default_pdf_max}]: ").strip()
+        if raw == "":
+            pdf_max_pages = default_pdf_max
+            break
+        try:
+            pdf_max_pages = int(raw)
+            if pdf_max_pages > 0:
+                break
+            print("Please enter a positive integer")
+        except ValueError:
+            print("Please enter a valid number")
+
     config["update_config"] = update_config
+    config["extraction"] = {"pdf_max_pages": pdf_max_pages}
     
     return config
 
