@@ -9,7 +9,6 @@ import os
 import sqlite3
 import platform
 import logging
-from typing import Optional as _Optional
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
@@ -153,7 +152,7 @@ class LocalZoteroReader:
         for row in conn.execute(query, (parent_item_id,)):
             yield row["attachmentKey"], row["path"], row["contentType"]
 
-    def _resolve_attachment_path(self, attachment_key: str, zotero_path: str) -> _Optional[Path]:
+    def _resolve_attachment_path(self, attachment_key: str, zotero_path: str) -> Optional[Path]:
         """Resolve a Zotero attachment path like 'storage:filename.pdf' to a filesystem path."""
         if not zotero_path:
             return None
@@ -212,7 +211,7 @@ class LocalZoteroReader:
         except Exception:
             return ""
 
-    def _extract_fulltext_for_item(self, item_id: int) -> _Optional[tuple[str, str]]:
+    def _extract_fulltext_for_item(self, item_id: int) -> Optional[tuple[str, str]]:
         """Attempt to extract fulltext and source from the item's best attachment.
 
         Preference: use PDF when available; fall back to HTML when no PDF exists.
@@ -367,7 +366,7 @@ class LocalZoteroReader:
         return items
 
     # Public helper to extract fulltext on demand for a specific item
-    def extract_fulltext_for_item(self, item_id: int) -> _Optional[str]:
+    def extract_fulltext_for_item(self, item_id: int) -> Optional[str]:
         return self._extract_fulltext_for_item(item_id)
     
     def get_item_by_key(self, key: str) -> Optional[ZoteroItem]:
