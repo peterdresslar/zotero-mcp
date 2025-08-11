@@ -1,4 +1,5 @@
 from typing import List, Dict
+import os
 
 def format_creators(creators: List[Dict[str, str]]) -> str:
     """
@@ -17,3 +18,13 @@ def format_creators(creators: List[Dict[str, str]]) -> str:
         elif "name" in creator:
             names.append(creator["name"])
     return "; ".join(names) if names else "No authors listed"
+
+
+def is_local_mode() -> bool:
+    """Return True if running in local mode.
+
+    Local mode is enabled when environment variable `ZOTERO_LOCAL` is set to a
+    truthy value ("true", "yes", or "1", case-insensitive).
+    """
+    value = os.getenv("ZOTERO_LOCAL", "")
+    return value.lower() in {"true", "yes", "1"}

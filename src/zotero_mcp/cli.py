@@ -142,6 +142,14 @@ def main():
     db_status_parser.add_argument("--config-path",
                                  help="Path to semantic search configuration file")
     
+    # DB inspect command (sample and filter indexed docs; also supports stats)
+    inspect_parser = subparsers.add_parser("db-inspect", help="Inspect indexed documents or show aggregate stats for the semantic DB")
+    inspect_parser.add_argument("--limit", type=int, default=20, help="How many records to show (default: 20)")
+    inspect_parser.add_argument("--filter", dest="filter_text", help="Substring to match in title or creators")
+    inspect_parser.add_argument("--show-documents", action="store_true", help="Show beginning of stored document text")
+    inspect_parser.add_argument("--stats", action="store_true", help="Show aggregate stats (formerly db-stats)")
+    inspect_parser.add_argument("--config-path", help="Path to semantic search configuration file")
+
     # Update command
     update_parser = subparsers.add_parser("update", help="Update zotero-mcp to the latest version")
     update_parser.add_argument("--check-only", action="store_true",
@@ -358,6 +366,108 @@ def main():
             
         except Exception as e:
             print(f"Error getting database status: {e}")
+            sys.exit(1)
+
+    elif args.command == "db-inspect":
+        # Setup Zotero environment variables
+        setup_zotero_environment()
+
+        from zotero_mcp.semantic_search import create_semantic_search
+        from collections import Counter
+
+        # Determine config path
+        config_path = args.config_path
+        if not config_path:
+            config_path = Path.home() / ".config" / "zotero-mcp" / "config.json"
+        else:
+            config_path = Path(config_path)
+
+        try:
+            search = create_semantic_search(str(config_path))
+            client = search.chroma_client
+            col = client.collection
+
+            if args.stats:
+                # Show aggregate stats (merged from former db-stats)
+                meta = col.get(include=["metadatas"])  # type: ignore
+                metas = meta.get("metadatas", [])
+                print("=== Semantic DB Inspection (Stats) ===")
+                info = client.get_collection_info()
+                print(f"Collection: {info.get('name')} @ {info.get('persist_directory')}")
+                print(f"Count: {info.get('count')}")
+
+                # Item type distribution
+                item_types = [ (m or {}).get("item_type", "") for m in metas ]
+                ct_types = Counter(item_types)
+                print("Item types:")
+                for t, c in ct_types.most_common(20):
+                    print(f"  {t or '(missing)'}: {c}")
+
+                # Fulltext coverage by type (pdf/html)
+                coverage = {}
+                for m in metas:
+                    m = m or {}
+                    t = m.get("item_type", "") or "(missing)"
+                    cov = coverage.setdefault(t, {"total": 0, "with_fulltext": 0, "pdf": 0, "html": 0})
+                    cov["total"] += 1
+                    if m.get("has_fulltext"):
+                        cov["with_fulltext"] += 1
+                        src = (m.get("fulltext_source") or "").lower()
+                        if src == "pdf":
+                            cov["pdf"] += 1
+                        elif src == "html":
+                            cov["html"] += 1
+                print("Fulltext coverage (by type):")
+                for t, cov in coverage.items():
+                    print(f"  {t}: {cov['with_fulltext']}/{cov['total']} (pdf:{cov['pdf']}, html:{cov['html']})")
+
+                # Common titles (may indicate duplicates)
+                titles = [ (m or {}).get("title", "") for m in metas ]
+                from collections import Counter as _Counter
+                ct_titles = _Counter([t for t in titles if t])
+                common = [(t,c) for t,c in ct_titles.most_common(10)]
+                if common:
+                    print("Common titles:")
+                    for t, c in common:
+                        print(f"  {t[:80]}{'...' if len(t)>80 else ''}: {c}")
+                return
+
+            include = ["metadatas"]
+            if args.show_documents:
+                include.append("documents")
+
+            # Fetch up to limit; filter client-side if requested
+            data = col.get(limit=args.limit, include=include)
+
+            print("=== Semantic DB Inspection ===")
+            total = client.get_collection_info().get("count", 0)
+            print(f"Total documents: {total}")
+            print(f"Showing up to: {args.limit}")
+
+            shown = 0
+            for i, meta in enumerate(data.get("metadatas", [])):
+                meta = meta or {}
+                title = meta.get("title", "")
+                creators = meta.get("creators", "")
+                if args.filter_text:
+                    needle = args.filter_text.lower()
+                    if needle not in (title or "").lower() and needle not in (creators or "").lower():
+                        continue
+                print(f"- {title} | {creators}")
+                if args.show_documents:
+                    doc = (data.get("documents", [""])[i] or "").strip()
+                    snippet = doc[:200].replace("\n", " ") + ("..." if len(doc) > 200 else "")
+                    if snippet:
+                        print(f"  doc: {snippet}")
+                shown += 1
+                if shown >= args.limit:
+                    break
+
+            if shown == 0:
+                print("No records matched your filter.")
+
+        except Exception as e:
+            print(f"Error inspecting database: {e}")
             sys.exit(1)
     
     elif args.command == "update":

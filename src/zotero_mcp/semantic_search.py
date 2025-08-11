@@ -158,6 +158,11 @@ class ZoteroSemanticSearch:
             "url": data.get("url", ""),
             "doi": data.get("DOI", ""),
         }
+        # If local fulltext field exists, add markers so we can filter later
+        if data.get("fulltext"):
+            metadata["has_fulltext"] = True
+            if data.get("fulltextSource"):
+                metadata["fulltext_source"] = data.get("fulltextSource")
         
         # Add tags as a single string
         if tags := data.get("tags"):
@@ -237,7 +242,93 @@ class ZoteroSemanticSearch:
         
         try:
             with LocalZoteroReader() as reader:
-                local_items = reader.get_items_with_text(limit=limit)
+                # Phase 1: fetch metadata only (fast)
+                print("Scanning local Zotero database for items...", flush=True)
+                local_items = reader.get_items_with_text(limit=limit, include_fulltext=False)
+                candidate_count = len(local_items)
+                print(f"Found {candidate_count} candidate items.", flush=True)
+
+                # Optional deduplication: if preprint and journalArticle share a DOI/title, keep journalArticle
+                # Build index by (normalized DOI or normalized title)
+                def norm(s: Optional[str]) -> Optional[str]:
+                    if not s:
+                        return None
+                    return "".join(s.lower().split())
+
+                key_to_best = {}
+                for it in local_items:
+                    doi_key = ("doi", norm(getattr(it, "doi", None))) if getattr(it, "doi", None) else None
+                    title_key = ("title", norm(getattr(it, "title", None))) if getattr(it, "title", None) else None
+
+                    def consider(k):
+                        if not k:
+                            return
+                        cur = key_to_best.get(k)
+                        # Prefer journalArticle over preprint; otherwise keep first
+                        if cur is None:
+                            key_to_best[k] = it
+                        else:
+                            prefer_types = {"journalArticle": 2, "preprint": 1}
+                            cur_score = prefer_types.get(getattr(cur, "item_type", ""), 0)
+                            new_score = prefer_types.get(getattr(it, "item_type", ""), 0)
+                            if new_score > cur_score:
+                                key_to_best[k] = it
+
+                    consider(doi_key)
+                    consider(title_key)
+
+                # If a preprint loses against a journal article for same DOI/title, drop it
+                filtered_items = []
+                for it in local_items:
+                    # If there is a journalArticle alternative for same DOI or title, and this is preprint, drop
+                    if getattr(it, "item_type", None) == "preprint":
+                        k_doi = ("doi", norm(getattr(it, "doi", None))) if getattr(it, "doi", None) else None
+                        k_title = ("title", norm(getattr(it, "title", None))) if getattr(it, "title", None) else None
+                        drop = False
+                        for k in (k_doi, k_title):
+                            if not k:
+                                continue
+                            best = key_to_best.get(k)
+                            if best is not None and best is not it and getattr(best, "item_type", None) == "journalArticle":
+                                drop = True
+                                break
+                        if drop:
+                            continue
+                    filtered_items.append(it)
+
+                local_items = filtered_items
+                total_to_extract = len(local_items)
+                if total_to_extract != candidate_count:
+                    try:
+                        print(
+                            f"After filtering/dedup: {total_to_extract} items to process. Extracting content...",
+                            flush=True,
+                        )
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        print("Extracting content...", flush=True)
+                    except Exception:
+                        pass
+
+                # Phase 2: selectively extract fulltext only now, with lightweight progress
+                extracted = 0
+                for it in local_items:
+                    if not getattr(it, "fulltext", None):
+                        text = reader.extract_fulltext_for_item(it.item_id)
+                        if text:
+                            # Support new (text, source) return format
+                            if isinstance(text, tuple) and len(text) == 2:
+                                it.fulltext, it.fulltext_source = text[0], text[1]
+                            else:
+                                it.fulltext = text
+                    extracted += 1
+                    if extracted % 25 == 0 and total_to_extract:
+                        try:
+                            print(f"Extracted content for {extracted}/{total_to_extract} items...", flush=True)
+                        except Exception:
+                            pass
                 
                 # Convert to API-compatible format
                 api_items = []
@@ -248,10 +339,13 @@ class ZoteroSemanticSearch:
                         "version": 0,  # Local items don't have versions
                         "data": {
                             "key": item.key,
-                            "itemType": "journalArticle",  # Default, could be improved
+                            "itemType": getattr(item, 'item_type', None) or "journalArticle",
                             "title": item.title or "",
                             "abstractNote": item.abstract or "",
                             "extra": item.extra or "",
+                            # Include a slice of extracted fulltext if available
+                            "fulltext": getattr(item, 'fulltext', None) or "",
+                            "fulltextSource": getattr(item, 'fulltext_source', None) or "",
                             "dateAdded": item.date_added,
                             "dateModified": item.date_modified,
                             "creators": self._parse_creators_string(item.creators) if item.creators else []
@@ -388,9 +482,18 @@ class ZoteroSemanticSearch:
             
             stats["total_items"] = len(all_items)
             logger.info(f"Found {stats['total_items']} items to process")
+            # Immediate progress line so users see counts up-front
+            try:
+                print(f"Total items to index: {stats['total_items']}", flush=True)
+            except Exception:
+                pass
             
             # Process items in batches
             batch_size = 50
+            # Track next milestone for progress printing (every 10 items)
+            next_milestone = 10 if stats["total_items"] >= 10 else stats["total_items"]
+            # Count of items seen (including skipped), used for progress milestones
+            seen_items = 0
             for i in range(0, len(all_items), batch_size):
                 batch = all_items[i:i + batch_size]
                 batch_stats = self._process_item_batch(batch, force_full_rebuild)
@@ -400,8 +503,25 @@ class ZoteroSemanticSearch:
                 stats["updated_items"] += batch_stats["updated"]
                 stats["skipped_items"] += batch_stats["skipped"]
                 stats["errors"] += batch_stats["errors"]
+                seen_items += len(batch)
                 
-                logger.info(f"Processed {stats['processed_items']}/{stats['total_items']} items")
+                logger.info(f"Processed {seen_items}/{stats['total_items']} items (added: {stats['added_items']}, skipped: {stats['skipped_items']})")
+                # Print progress every 10 seen items (even if all are skipped)
+                try:
+                    while seen_items >= next_milestone and next_milestone > 0:
+                        print(
+                            f"Processed: {next_milestone}/{stats['total_items']} "
+                            f"added:{stats['added_items']} "
+                            f"skipped:{stats['skipped_items']} "
+                            f"errors:{stats['errors']}",
+                            flush=True,
+                        )
+                        next_milestone += 10
+                        if next_milestone > stats["total_items"]:
+                            next_milestone = stats["total_items"]
+                            break
+                except Exception:
+                    pass
             
             # Update last update time
             self.update_config["last_update"] = datetime.now().isoformat()
@@ -443,7 +563,9 @@ class ZoteroSemanticSearch:
                     continue
                 
                 # Create document text and metadata
-                doc_text = self._create_document_text(item)
+                # Prefer fulltext if available, else fall back to structured fields
+                fulltext = item.get("data", {}).get("fulltext", "")
+                doc_text = fulltext if fulltext.strip() else self._create_document_text(item)
                 metadata = self._create_metadata(item)
                 
                 if not doc_text.strip():
