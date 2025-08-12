@@ -1,0 +1,19 @@
+{
+  "manifest_version": 2,
+  "name": "Zotero MCP Write Bridge",
+  "version": "0.1.0",
+  "description": "Local bridge to safely write tags and notes via Zotero Client API.",
+  "applications": {
+    "gecko": {
+      "id": "zotero-mcp-bridge@zotero-mcp.local",
+      "strict_min_version": "91.0"
+    }
+  },
+  "background": {
+    "scripts": ["src/background.js"],
+    "persistent": true
+  },
+  "permissions": [
+    "storage"
+  ]
+}
