@@ -1,0 +1,19 @@
+{
+  "manifest_version": 2,
+  "name": "Zotero MCP Plugin",
+  "version": "__buildVersion__",
+  "description": "__description__",
+  "homepage_url": "__homepage__",
+  "author": "__author__",
+  "icons": {
+    "48": "content/icons/favicon@0.5x.png",
+    "96": "content/icons/favicon.png"
+  },
+  "applications": {
+    "zotero": {
+      "id": "zotero-mcp-plugin@zotero-mcp.local",
+      "strict_min_version": "7.0.0",
+      "strict_max_version": "7.*"
+    }
+  }
+}
