@@ -36,3 +36,39 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Node/TypeScript (client plugin)
+client/zotero-mcp-plugin/node_modules/
+client/zotero-mcp-plugin/addon/
+client/zotero-mcp-plugin/.eslintcache
+client/zotero-mcp-plugin/tsconfig.tsbuildinfo
+client/zotero-mcp-plugin/*.tsbuildinfo
+client/zotero-mcp-plugin/.tsbuildinfo
+*.tsbuildinfo
+
+# Zotero plugin build artifacts
+client/zotero-mcp-plugin/.scaffold/build/
+client/zotero-mcp-plugin/.scaffold/tmp/
+client/zotero-mcp-plugin/**/*.xpi
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Python tooling caches
+.mypy_cache/
+.ruff_cache/
+.tox/
+.pyre/
+.hypothesis/
+
+# Coverage
+.coverage.*
+coverage.xml
+
+# Packaging
+.eggs/
+pip-wheel-metadata/
+share/python-wheels/
